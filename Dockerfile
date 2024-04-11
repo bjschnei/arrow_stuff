@@ -1,12 +1,15 @@
 # syntax=docker/dockerfile:1
-FROM ubuntu
+FROM ubuntu:22.04
+
 RUN rm -f /etc/apt/apt.conf.d/docker-clean; echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   --mount=type=cache,target=/var/lib/apt,sharing=locked \
   apt update && \
-  apt-get install -y \
+  apt-get install -y -V \
     clang \
     cmake \
+    ninja-build \
+    libssl-dev \
     ca-certificates \
     lsb-release wget
 
