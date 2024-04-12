@@ -33,9 +33,7 @@ constexpr std::array<Data, 5> kTable1 = {
     Data{"obj1", 1, 10}, Data{"obj2", 1, 15}, Data{"obj3", 3, 20},
     Data{"obj4", 3, 25}, Data{"obj5", 7, 30}};
 
-template <typename T>
-// todo: make a span or generic iterable
-arrow::Result<std::shared_ptr<arrow::Table>> CreateTable(const T& rows) {
+arrow::Result<std::shared_ptr<arrow::Table>> CreateTable(std::span<const Data> rows) {
     arrow::MemoryPool* pool = arrow::default_memory_pool();
     arrow::StringBuilder description_builder(pool);
     arrow::UInt32Builder priority_builder(pool);

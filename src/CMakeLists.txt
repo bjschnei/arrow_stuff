@@ -22,3 +22,6 @@ find_package(Arrow REQUIRED)
 
 add_executable(table_basics table_basics.cc)
 target_link_libraries(table_basics PRIVATE Arrow::arrow_shared)
+
+add_executable(acero_basics acero_basics.cc)
+target_link_libraries(acero_basics PRIVATE Arrow::arrow_shared)
