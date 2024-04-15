@@ -11,6 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(FetchContent)
 
 find_package(Arrow REQUIRED)
+find_package(ArrowDataset REQUIRED)
 
 # Absl
 #set(ABSL_PROPAGATE_CXX_STD ON)
@@ -24,4 +25,5 @@ add_executable(table_basics table_basics.cc)
 target_link_libraries(table_basics PRIVATE Arrow::arrow_shared)
 
 add_executable(acero_basics acero_basics.cc)
-target_link_libraries(acero_basics PRIVATE Arrow::arrow_shared)
+target_link_libraries(acero_basics PRIVATE Arrow::arrow_shared 
+                                           ArrowDataset::arrow_dataset_shared)

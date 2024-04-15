@@ -76,7 +76,7 @@ arrow::Result<uint64_t> SumPrice(const arrow::Table& table) {
     return sum.scalar_as<arrow::UInt64Scalar>().value;
 }
 
-arrow::Result<std::shared_ptr<arrow::RecordBatch>> SumGroupByPriority(
+arrow::Result<std::shared_ptr<arrow::Table>> SumGroupByPriority(
     const arrow::Table& table) {
     ARROW_ASSIGN_OR_RAISE(auto record_batch, table.CombineChunksToBatch());
     std::vector<arrow::Datum> priority_keys = {
@@ -118,10 +118,10 @@ arrow::Result<std::shared_ptr<arrow::RecordBatch>> SumGroupByPriority(
         arrow::field("priority", arrow::uint32()),
         arrow::field("price", arrow::uint64())};
     auto result_schema = std::make_shared<arrow::Schema>(result_schema_vector);
-    auto result_batch = arrow::RecordBatch::Make(result_schema, priority_batch->num_rows(), {
+    auto result = arrow::Table::Make(result_schema, {
         priority_batch->column(0),
         price_array});
-    return result_batch;
+    return result;
 }
 
 int main(int argc, char** argv) {
