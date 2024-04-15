@@ -53,6 +53,27 @@ arrow::Result<arrow::acero::Declaration> CreateSumPricePlan(
   return plan;
 }
 
+arrow::Result<arrow::acero::Declaration> CreateSumPriceGroupByPriorityPlan(
+    std::shared_ptr<arrow::Table> table) {
+  auto dataset = std::make_shared<arrow::dataset::InMemoryDataset>(table);
+  auto options = std::make_shared<arrow::dataset::ScanOptions>();
+  options->projection = arrow::compute::project(
+      {
+          arrow::compute::field_ref("priority"),
+          arrow::compute::field_ref("price"),
+      },
+      {});
+  auto scan_node_options = arrow::dataset::ScanNodeOptions{dataset, options};
+  // Group By must use hash aggregate functions.
+  auto aggregate_options = arrow::acero::AggregateNodeOptions{
+      /*aggregates=*/{{"hash_sum", nullptr, "price", "sum(price)"}},
+      /*keys=*/{{"priority"}}};
+  auto plan = arrow::acero::Declaration::Sequence(
+      {{"scan", std::move(scan_node_options)},
+       {"aggregate", std::move(aggregate_options)}});
+  return plan;
+}
+
 int main(int argc, char** argv) {
   arrow::dataset::internal::Initialize();
   auto table = CreateTableFromCSVData(kCsvTable);
@@ -62,11 +83,21 @@ int main(int argc, char** argv) {
   }
   std::cout << (*table)->ToString() << std::endl;
   auto sum_plan = CreateSumPricePlan(*table);
-  auto response_table = arrow::acero::DeclarationToTable(std::move(*sum_plan));
-  if (!response_table.ok()) {
-    std::cout << "Failed to compute table: " << response_table.status()
+  auto sum_price_table = arrow::acero::DeclarationToTable(std::move(*sum_plan));
+  if (!sum_price_table.ok()) {
+    std::cout << "Failed to compute table: " << sum_price_table.status()
               << std::endl;
   }
-  std::cout << "Results : " << (*response_table)->ToString() << std::endl;
+  std::cout << "Results : " << (*sum_price_table)->ToString() << std::endl;
+
+  auto group_plan = CreateSumPriceGroupByPriorityPlan(*table);
+  auto sum_price_group_table =
+      arrow::acero::DeclarationToTable(std::move(*group_plan));
+  if (!sum_price_group_table.ok()) {
+    std::cout << "Failed to compute table: " << sum_price_group_table.status()
+              << std::endl;
+  }
+  std::cout << "Results : " << (*sum_price_group_table)->ToString()
+            << std::endl;
   return 0;
 }
