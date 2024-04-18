@@ -10,6 +10,9 @@
 #include <iostream>
 #include <string_view>
 
+/**
+ * Demonstrate executing an acero declaration on an arrow table.
+*/
 constexpr std::string_view kCsvTable = R"csv(
 description,priority,price
 "obj1",1,10

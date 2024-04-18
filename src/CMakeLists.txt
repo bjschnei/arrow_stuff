@@ -12,6 +12,8 @@ include(FetchContent)
 
 find_package(Arrow REQUIRED)
 find_package(ArrowDataset REQUIRED)
+find_package(ArrowFlight REQUIRED)
+find_package(ArrowSubstrait REQUIRED)
 
 # Absl
 #set(ABSL_PROPAGATE_CXX_STD ON)
@@ -27,3 +29,9 @@ target_link_libraries(table_basics PRIVATE Arrow::arrow_shared)
 add_executable(acero_basics acero_basics.cc)
 target_link_libraries(acero_basics PRIVATE Arrow::arrow_shared 
                                            ArrowDataset::arrow_dataset_shared)
+
+add_executable(flight_server_basics flight_server_basics.cc)
+target_link_libraries(flight_server_basics PRIVATE Arrow::arrow_shared 
+                                                   ArrowDataset::arrow_dataset_shared
+                                                   ArrowFlight::arrow_flight_shared
+                                                   ArrowSubstrait::arrow_substrait_shared)

@@ -23,6 +23,10 @@
 #include <iostream>
 #include <span>
 
+/**
+ * Demonstrate the basics of constructing a arrow formatted table.
+ * Run some simple aggregations.
+*/
 struct Data {
   std::string_view description;
   uint32_t priority;
