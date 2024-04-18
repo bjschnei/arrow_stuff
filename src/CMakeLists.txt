@@ -24,14 +24,14 @@ find_package(ArrowSubstrait REQUIRED)
 #FetchContent_MakeAvailable(absl)
 
 add_executable(table_basics table_basics.cc)
-target_link_libraries(table_basics PRIVATE Arrow::arrow_shared)
+target_link_libraries(table_basics PRIVATE Arrow::arrow_static)
 
 add_executable(acero_basics acero_basics.cc)
-target_link_libraries(acero_basics PRIVATE Arrow::arrow_shared 
-                                           ArrowDataset::arrow_dataset_shared)
+target_link_libraries(acero_basics PRIVATE Arrow::arrow_static 
+                                           ArrowDataset::arrow_dataset_static)
 
 add_executable(flight_server_basics flight_server_basics.cc)
-target_link_libraries(flight_server_basics PRIVATE Arrow::arrow_shared 
-                                                   ArrowDataset::arrow_dataset_shared
-                                                   ArrowFlight::arrow_flight_shared
-                                                   ArrowSubstrait::arrow_substrait_shared)
+target_link_libraries(flight_server_basics PRIVATE Arrow::arrow_static 
+                                                   ArrowDataset::arrow_dataset_static
+                                                   ArrowFlight::arrow_flight_static
+                                                   ArrowSubstrait::arrow_substrait_static)

@@ -22,7 +22,7 @@ RUN cd /home && \
     git clone https://github.com/apache/arrow.git && \
     mkdir -p arrow/cpp/build && \
     cd arrow/cpp/build && \
-    cmake .. --preset ninja-release -DARROW_FLIGHT="ON" && \
+    cmake .. --preset ninja-release -DARROW_FLIGHT="ON" -DARROW_BUILD_STATIC="ON" && \
     cmake --build . && \
     cmake --install .
 
