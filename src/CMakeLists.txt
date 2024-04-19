@@ -35,3 +35,9 @@ target_link_libraries(flight_server_basics PRIVATE Arrow::arrow_static
                                                    ArrowDataset::arrow_dataset_static
                                                    ArrowFlight::arrow_flight_static
                                                    ArrowSubstrait::arrow_substrait_static)
+
+add_executable(flight_client_basics flight_client_basics.cc)
+target_link_libraries(flight_client_basics PRIVATE Arrow::arrow_static 
+                                                   ArrowDataset::arrow_dataset_static
+                                                   ArrowFlight::arrow_flight_static
+                                                   ArrowSubstrait::arrow_substrait_static)

@@ -1,5 +1,6 @@
 #include <cstdlib>
 #include <iostream>
+#include <optional>
 #include <string_view>
 #include <unordered_map>
 
@@ -48,7 +49,7 @@ arrow::acero::Declaration CreateNamedTableSource(
     std::shared_ptr<arrow::Table> table) {
   auto table_source_options = arrow::acero::NamedTableNodeOptions(
       {std::string(kTableName)}, table->schema());
-  arrow::acero::Declaration source{"table_source",
+  arrow::acero::Declaration source{"named_table",
                                    std::move(table_source_options)};
   return source;
 }
@@ -72,7 +73,8 @@ class QueryTableServer : public arrow::flight::FlightServerBase {
       const arrow::flight::Criteria* criteria,
       std::unique_ptr<arrow::flight::FlightListing>* listings) override {
     std::vector<arrow::flight::FlightInfo> flights;
-    auto info = MakeFlightInfoForTable(CreateNamedTableSource(table_), {});
+    auto info = MakeFlightInfoForTable(CreateTableSource(table_),
+                                       CreateNamedTableSource(table_));
     if (!info.ok()) {
       return info.status();
     }
@@ -91,6 +93,7 @@ class QueryTableServer : public arrow::flight::FlightServerBase {
                           arrow::engine::DeserializePlan(plan_buffer));
     ARROW_ASSIGN_OR_RAISE(auto flight_info,
                           MakeFlightInfoForTable(CreateTableSource(table_),
+                                                 CreateNamedTableSource(table_),
                                                  plan_info.root.declaration));
     *info = std::unique_ptr<arrow::flight::FlightInfo>(
         new arrow::flight::FlightInfo(std::move(flight_info)));
@@ -122,22 +125,37 @@ class QueryTableServer : public arrow::flight::FlightServerBase {
  private:
   arrow::Result<arrow::flight::FlightInfo> MakeFlightInfoForTable(
       arrow::acero::Declaration source_node,
-      arrow::acero::Declaration declaration) {
-    auto plan = arrow::acero::Declaration::Sequence({source_node, declaration});
+      arrow::acero::Declaration named_source_node,
+      std::optional<arrow::acero::Declaration> declaration = std::nullopt) {
+    arrow::acero::Declaration plan;
+    arrow::acero::Declaration named_plan;
+    if (declaration) {
+      plan = arrow::acero::Declaration::Sequence({source_node, *declaration});
+      named_plan = arrow::acero::Declaration::Sequence(
+          {named_source_node, *declaration});
+    } else {
+      plan = source_node;
+      named_plan = named_source_node;
+    }
     ARROW_ASSIGN_OR_RAISE(auto schema, arrow::acero::DeclarationToSchema(plan));
     arrow::engine::ExtensionSet empty_extension_set;
     ARROW_ASSIGN_OR_RAISE(
         std::shared_ptr<arrow::Buffer> plan_substrait,
-        arrow::engine::SerializePlan(plan, &empty_extension_set));
+        arrow::engine::SerializePlan(named_plan, &empty_extension_set));
     arrow::flight::FlightEndpoint endpoint;
     endpoint.ticket.ticket = plan_substrait->ToString();
-    ARROW_ASSIGN_OR_RAISE(
-        std::shared_ptr<arrow::Buffer> declaration_substrait,
-        arrow::engine::SerializePlan(declaration, &empty_extension_set));
-    auto descriptor = arrow::flight::FlightDescriptor::Command(
-        declaration_substrait->ToString());
-    return arrow::flight::FlightInfo::Make(*schema, descriptor, {endpoint}, -1,
-                                           -1);
+    if (declaration) {
+      ARROW_ASSIGN_OR_RAISE(
+          std::shared_ptr<arrow::Buffer> declaration_substrait,
+          arrow::engine::SerializePlan(*declaration, &empty_extension_set));
+      auto descriptor = arrow::flight::FlightDescriptor::Command(
+          declaration_substrait->ToString());
+      return arrow::flight::FlightInfo::Make(*schema, descriptor, {endpoint},
+                                             -1, -1);
+    }
+    return arrow::flight::FlightInfo::Make(
+        *schema, arrow::flight::FlightDescriptor::Command(""), {endpoint}, -1,
+        -1);
   }
 
   std::shared_ptr<arrow::Table> table_;
