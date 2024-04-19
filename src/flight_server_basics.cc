@@ -26,6 +26,8 @@ description,priority,price
 "obj5",7,30
 )csv";
 
+constexpr std::string_view kTableName = "table";
+
 arrow::Result<std::shared_ptr<arrow::Table>> CreateTableFromCSVData(
     std::string_view csv) {
   const arrow::io::IOContext& io_context = arrow::io::default_io_context();
@@ -42,9 +44,18 @@ arrow::Result<std::shared_ptr<arrow::Table>> CreateTableFromCSVData(
   return table_reader->Read();
 }
 
+arrow::acero::Declaration CreateNamedTableSource(
+    std::shared_ptr<arrow::Table> table) {
+  auto table_source_options = arrow::acero::NamedTableNodeOptions(
+      {std::string(kTableName)}, table->schema());
+  arrow::acero::Declaration source{"table_source",
+                                   std::move(table_source_options)};
+  return source;
+}
+
 arrow::acero::Declaration CreateTableSource(
     std::shared_ptr<arrow::Table> table) {
-  auto table_source_options = arrow::acero::TableSourceNodeOptions{table};
+  auto table_source_options = arrow::acero::TableSourceNodeOptions(table);
   arrow::acero::Declaration source{"table_source",
                                    std::move(table_source_options)};
   return source;
@@ -61,7 +72,7 @@ class QueryTableServer : public arrow::flight::FlightServerBase {
       const arrow::flight::Criteria* criteria,
       std::unique_ptr<arrow::flight::FlightListing>* listings) override {
     std::vector<arrow::flight::FlightInfo> flights;
-    auto info = MakeFlightInfoForTable(CreateTableSource(table_), {});
+    auto info = MakeFlightInfoForTable(CreateNamedTableSource(table_), {});
     if (!info.ok()) {
       return info.status();
     }
@@ -83,6 +94,35 @@ class QueryTableServer : public arrow::flight::FlightServerBase {
                                                  plan_info.root.declaration));
     *info = std::unique_ptr<arrow::flight::FlightInfo>(
         new arrow::flight::FlightInfo(std::move(flight_info)));
+    return arrow::Status::OK();
+  }
+
+  arrow::Status DoGet(
+      const arrow::flight::ServerCallContext&,
+      const arrow::flight::Ticket& request,
+      std::unique_ptr<arrow::flight::FlightDataStream>* stream) override {
+    arrow::Buffer buf(request.ticket);
+    arrow::engine::ConversionOptions conversion_options;
+    conversion_options.named_table_provider =
+        [this](const std::vector<std::string>&, const arrow::Schema&) {
+          return CreateTableSource(table_);
+        };
+    ARROW_ASSIGN_OR_RAISE(arrow::engine::PlanInfo plan_info,
+                          arrow::engine::DeserializePlan(
+                              buf, /*registry =*/nullptr,
+                              /*ext_set_out=*/nullptr, conversion_options));
+
+    ARROW_ASSIGN_OR_RAISE(auto table,
+                          arrow::acero::DeclarationToTable(
+                              std::move(plan_info.root.declaration)));
+    std::vector<std::shared_ptr<arrow::RecordBatch>> batches;
+    arrow::TableBatchReader batch_reader(*table);
+    ARROW_ASSIGN_OR_RAISE(batches, batch_reader.ToRecordBatches());
+    ARROW_ASSIGN_OR_RAISE(
+        auto owning_reader,
+        arrow::RecordBatchReader::Make(std::move(batches), table->schema()));
+    *stream = std::unique_ptr<arrow::flight::FlightDataStream>(
+        new arrow::flight::RecordBatchStream(owning_reader));
     return arrow::Status::OK();
   }
 
