@@ -111,18 +111,11 @@ class QueryTableServer : public arrow::flight::FlightServerBase {
                           arrow::engine::DeserializePlan(
                               buf, /*registry =*/nullptr,
                               /*ext_set_out=*/nullptr, conversion_options));
-
-    ARROW_ASSIGN_OR_RAISE(auto table,
-                          arrow::acero::DeclarationToTable(
+    ARROW_ASSIGN_OR_RAISE(auto batch_reader,
+                          arrow::acero::DeclarationToReader(
                               std::move(plan_info.root.declaration)));
-    std::vector<std::shared_ptr<arrow::RecordBatch>> batches;
-    arrow::TableBatchReader batch_reader(*table);
-    ARROW_ASSIGN_OR_RAISE(batches, batch_reader.ToRecordBatches());
-    ARROW_ASSIGN_OR_RAISE(
-        auto owning_reader,
-        arrow::RecordBatchReader::Make(std::move(batches), table->schema()));
-    *stream = std::unique_ptr<arrow::flight::FlightDataStream>(
-        new arrow::flight::RecordBatchStream(owning_reader));
+    std::shared_ptr<arrow::RecordBatchReader> shared = std::move(batch_reader);
+    *stream = std::make_unique<arrow::flight::RecordBatchStream>(shared);
     return arrow::Status::OK();
   }
 
