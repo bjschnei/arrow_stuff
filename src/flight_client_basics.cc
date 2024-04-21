@@ -4,6 +4,7 @@
 #include <iostream>
 
 #include "arrow/flight/client.h"
+#include <arrow/api.h>
 
 arrow::Result<std::unique_ptr<arrow::flight::FlightClient>> CreateClient() {
   constexpr std::string_view location_str = "grpc://localhost:12345";
@@ -18,12 +19,22 @@ arrow::Status ListFlights(arrow::flight::FlightClient& client) {
   while (true) {
     ARROW_ASSIGN_OR_RAISE(auto flight_info, flights_result->Next());
     if (!flight_info) {
-        break;
+      break;
     }
     arrow::ipc::DictionaryMemo memo;
     ARROW_ASSIGN_OR_RAISE(auto schema, flight_info->GetSchema(&memo));
     std::cout << "schema:" << std::endl << schema->ToString() << std::endl;
   }
+  return arrow::Status::OK();
+}
+
+arrow::Status QueryFullTable(arrow::flight::FlightClient& client) {
+  arrow::flight::FlightDescriptor empty;
+  ARROW_ASSIGN_OR_RAISE(auto flight_info, client.GetFlightInfo(empty));
+  ARROW_ASSIGN_OR_RAISE(auto flight_stream_reader,
+                        client.DoGet(flight_info->endpoints()[0].ticket));
+  ARROW_ASSIGN_OR_RAISE(auto table, flight_stream_reader->ToTable());
+  std::cout << table->ToString() << std::endl;
   return arrow::Status::OK();
 }
 
@@ -33,6 +44,13 @@ int main(int argc, char** argv) {
     std::cout << "Failed to create client: " << client.status() << std::endl;
     return 1;
   }
-  ListFlights(**client);
+  if (auto result = ListFlights(**client); !result.ok()) {
+    std::cout << "List flights failed with: " << result << std::endl;
+    return 1;
+  };
+  if(auto result = QueryFullTable(**client); !result.ok()) {
+    std::cout << "Query full table failed with: " << result << std::endl;
+    return 1;
+  }
   return 0;
 }

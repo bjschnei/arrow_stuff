@@ -88,15 +88,25 @@ class QueryTableServer : public arrow::flight::FlightServerBase {
       const arrow::flight::ServerCallContext&,
       const arrow::flight::FlightDescriptor& descriptor,
       std::unique_ptr<arrow::flight::FlightInfo>* info) override {
-    arrow::Buffer plan_buffer(descriptor.cmd);
-    ARROW_ASSIGN_OR_RAISE(arrow::engine::PlanInfo plan_info,
-                          arrow::engine::DeserializePlan(plan_buffer));
-    ARROW_ASSIGN_OR_RAISE(auto flight_info,
-                          MakeFlightInfoForTable(CreateTableSource(table_),
-                                                 CreateNamedTableSource(table_),
-                                                 plan_info.root.declaration));
-    *info = std::unique_ptr<arrow::flight::FlightInfo>(
-        new arrow::flight::FlightInfo(std::move(flight_info)));
+    if (descriptor.cmd.empty()) {
+      ARROW_ASSIGN_OR_RAISE(
+          auto flight_info,
+          MakeFlightInfoForTable(CreateTableSource(table_),
+                                 CreateNamedTableSource(table_)));
+      *info =
+          std::make_unique<arrow::flight::FlightInfo>(std::move(flight_info));
+    } else {
+      arrow::Buffer plan_buffer(descriptor.cmd);
+      ARROW_ASSIGN_OR_RAISE(arrow::engine::PlanInfo plan_info,
+                            arrow::engine::DeserializePlan(plan_buffer));
+      ARROW_ASSIGN_OR_RAISE(
+          auto flight_info,
+          MakeFlightInfoForTable(CreateTableSource(table_),
+                                 CreateNamedTableSource(table_),
+                                 plan_info.root.declaration));
+      *info =
+          std::make_unique<arrow::flight::FlightInfo>(std::move(flight_info));
+    }
     return arrow::Status::OK();
   }
 
