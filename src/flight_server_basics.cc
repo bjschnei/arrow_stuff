@@ -5,6 +5,7 @@
 #include <unordered_map>
 
 #include "arrow/acero/api.h"
+#include "arrow/acero/util.h"
 #include "arrow/api.h"
 #include "arrow/compute/api.h"
 #include "arrow/csv/api.h"
@@ -28,6 +29,8 @@ description,priority,price
 )csv";
 
 constexpr std::string_view kTableName = "table";
+
+const auto kNullConsumer = std::make_shared<arrow::acero::NullSinkNodeConsumer>();
 
 arrow::Result<std::shared_ptr<arrow::Table>> CreateTableFromCSVData(
     std::string_view csv) {
@@ -117,16 +120,16 @@ class QueryTableServer : public arrow::flight::FlightServerBase {
     arrow::Buffer buf(request.ticket);
     arrow::engine::ConversionOptions conversion_options;
     conversion_options.named_table_provider =
-        [this](const std::vector<std::string>&, const arrow::Schema&) {
+        [this](const std::vector<std::string>& v, const arrow::Schema& s) {
           return CreateTableSource(table_);
         };
-    ARROW_ASSIGN_OR_RAISE(arrow::engine::PlanInfo plan_info,
-                          arrow::engine::DeserializePlan(
-                              buf, /*registry =*/nullptr,
-                              /*ext_set_out=*/nullptr, conversion_options));
+    ARROW_ASSIGN_OR_RAISE(auto sink_decls, arrow::engine::DeserializePlans(
+                                            buf, [] { return kNullConsumer; },
+                                            nullptr, nullptr, conversion_options));
+     auto& other_declrs = std::get<arrow::acero::Declaration>(sink_decls[0].inputs[0]);
     ARROW_ASSIGN_OR_RAISE(auto batch_reader,
                           arrow::acero::DeclarationToReader(
-                              std::move(plan_info.root.declaration)));
+                              other_declrs));
     std::shared_ptr<arrow::RecordBatchReader> shared = std::move(batch_reader);
     *stream = std::make_unique<arrow::flight::RecordBatchStream>(shared);
     return arrow::Status::OK();

@@ -22,6 +22,8 @@ RUN cd /home && \
     git clone https://github.com/apache/arrow.git && \
     mkdir -p arrow/cpp/build && \
     cd arrow/cpp/build && \
+    export CC=/usr/bin/clang && \
+    export CXX=/usr/bin/clang++ && \
     cmake .. --preset ninja-release -DARROW_FLIGHT="ON" -DARROW_BUILD_STATIC="ON" && \
     cmake --build . && \
     cmake --install .

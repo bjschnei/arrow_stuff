@@ -3,8 +3,10 @@
  */
 #include <iostream>
 
+#include "arrow/acero/api.h"
+#include "arrow/api.h"
+#include "arrow/engine/api.h"
 #include "arrow/flight/client.h"
-#include <arrow/api.h>
 
 arrow::Result<std::unique_ptr<arrow::flight::FlightClient>> CreateClient() {
   constexpr std::string_view location_str = "grpc://localhost:12345";
@@ -48,7 +50,7 @@ int main(int argc, char** argv) {
     std::cout << "List flights failed with: " << result << std::endl;
     return 1;
   };
-  if(auto result = QueryFullTable(**client); !result.ok()) {
+  if (auto result = QueryFullTable(**client); !result.ok()) {
     std::cout << "Query full table failed with: " << result << std::endl;
     return 1;
   }
