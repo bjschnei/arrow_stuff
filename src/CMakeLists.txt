@@ -30,6 +30,10 @@ add_executable(acero_basics acero_basics.cc)
 target_link_libraries(acero_basics PRIVATE Arrow::arrow_static 
                                            ArrowDataset::arrow_dataset_static)
 
+add_executable(acero_sharded_source acero_sharded_source.cc)
+target_link_libraries(acero_sharded_source PRIVATE Arrow::arrow_static 
+                                           ArrowDataset::arrow_dataset_static)
+
 add_executable(flight_server_basics flight_server_basics.cc)
 target_link_libraries(flight_server_basics PRIVATE Arrow::arrow_static 
                                                    ArrowDataset::arrow_dataset_static

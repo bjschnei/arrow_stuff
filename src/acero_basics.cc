@@ -1,11 +1,12 @@
-#include <arrow/acero/api.h>
-#include <arrow/api.h>
-#include <arrow/compute/api.h>
-#include <arrow/csv/api.h>
-#include <arrow/dataset/api.h>
-#include <arrow/dataset/plan.h>
-#include <arrow/io/interfaces.h>
-#include <arrow/io/memory.h>
+#include "arrow/acero/api.h"
+#include "arrow/api.h"
+#include "arrow/compute/api.h"
+#include "arrow/csv/api.h"
+#include "arrow/dataset/api.h"
+#include "arrow/dataset/plan.h"
+#include "arrow/io/interfaces.h"
+#include "arrow/io/memory.h"
+#include "arrow/result.h"
 
 #include <iostream>
 #include <string_view>
