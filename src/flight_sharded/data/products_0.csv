@@ -1,0 +1,6 @@
+sku,price,category
+"SKU1",1,"clothing"
+"SKU2",1,"clothing"
+"SKU3",3,"clothing"
+"SKU4",3,"food"
+"SKU5",7,"food"
