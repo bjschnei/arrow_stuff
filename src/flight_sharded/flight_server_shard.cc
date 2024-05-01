@@ -21,14 +21,9 @@ ABSL_FLAG(std::string, table_name, "Products",
 ABSL_FLAG(std::string, grpc_location, "grpc://localhost:12345",
           "Where this server/shard binds/listens.");
 
-struct TableWithName {
-  std::string name;
-  std::shared_ptr<arrow::Table> table;
-};
-
-arrow::Result<TableWithName> ReadTableShardData(std::string_view data_dir,
-                                                std::string_view table_name,
-                                                uint16_t shard_num) {
+arrow::Result<std::shared_ptr<arrow::Table>> ReadTableShardData(
+    std::string_view data_dir, std::string_view table_name,
+    uint16_t shard_num) {
   std::string lower_table_name = absl::AsciiStrToLower(table_name);
   const std::string path =
       absl::StrCat(data_dir, "/", lower_table_name, "_", shard_num, ".csv");
@@ -36,8 +31,7 @@ arrow::Result<TableWithName> ReadTableShardData(std::string_view data_dir,
   arrow::io::IOContext context;
   ARROW_ASSIGN_OR_RAISE(
       auto reader, arrow::csv::TableReader::Make({}, csv_file, {}, {}, {}));
-  ARROW_ASSIGN_OR_RAISE(auto table, reader->Read());
-  return TableWithName{std::move(lower_table_name), table};
+  return reader->Read();
 }
 
 // TODO: Refactor.  Copied from fligh_server_basics.
@@ -99,18 +93,18 @@ arrow::Status StartServer() {
       arrow::flight::Location location,
       arrow::flight::Location::Parse(absl::GetFlag(FLAGS_grpc_location)));
   arrow::flight::FlightServerOptions options(location);
-  ARROW_ASSIGN_OR_RAISE(auto table_with_name,
-                        ReadTableShardData(absl::GetFlag(FLAGS_data_dir),
-                                           absl::GetFlag(FLAGS_table_name),
-                                           absl::GetFlag(FLAGS_shard_num)));
-  std::cout << table_with_name.table->ToString() << std::endl;
-  /*std::unique_ptr<arrow::flight::FlightServerBase> server =
-      std::make_unique<QueryTableServer>(table);
+  const std::string table_name = absl::GetFlag(FLAGS_table_name);
+  ARROW_ASSIGN_OR_RAISE(
+      auto table, ReadTableShardData(absl::GetFlag(FLAGS_data_dir), table_name,
+                                     absl::GetFlag(FLAGS_shard_num)));
+  absl::flat_hash_map<std::string, std::shared_ptr<arrow::Table>> tables = {
+      {absl::AsciiStrToLower(table_name), table}};
+  std::unique_ptr<arrow::flight::FlightServerBase> server =
+      std::make_unique<ShardedTableServer>(tables);
   ARROW_RETURN_NOT_OK(server->Init(options));
   ARROW_RETURN_NOT_OK(server->SetShutdownOnSignals({SIGTERM}));
   std::cout << "Listening on " << location.ToString() << std::endl;
   ARROW_RETURN_NOT_OK(server->Serve());
-  */
   return arrow::Status::OK();
 }
 
