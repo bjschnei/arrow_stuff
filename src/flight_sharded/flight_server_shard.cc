@@ -2,6 +2,7 @@
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/flags/flag.h"
+#include "absl/flags/parse.h"
 #include "absl/strings/ascii.h"
 #include "absl/strings/str_cat.h"
 #include "arrow/acero/api.h"
@@ -82,6 +83,30 @@ class ShardedTableServer : public arrow::flight::FlightServerBase {
     return arrow::Status::OK();
   }
 
+  arrow::Status ListFlights(
+      const arrow::flight::ServerCallContext& context,
+      const arrow::flight::Criteria* criteria,
+      std::unique_ptr<arrow::flight::FlightListing>* listings) override {
+    std::vector<arrow::flight::FlightInfo> flights;
+
+    for (const auto& [name, table] : named_tables_) {
+      auto schema = table->schema();
+      auto metadata = std::make_shared<arrow::KeyValueMetadata>();
+      ARROW_RETURN_NOT_OK(metadata->Set("name", name));
+      schema = schema->WithMetadata(metadata);
+      ARROW_ASSIGN_OR_RAISE(auto info, arrow::flight::FlightInfo::Make(
+                                           *schema,
+                                           /*descriptor=*/{},
+                                           /*endpoints=*/{},
+                                           /*total_records=*/table->num_rows(),
+                                           /*total_bytes=*/-1));
+      flights.push_back(std::move(info));
+    }
+    *listings = std::unique_ptr<arrow::flight::FlightListing>(
+        new arrow::flight::SimpleFlightListing(std::move(flights)));
+    return arrow::Status::OK();
+  }
+
  private:
   absl::flat_hash_map<std::string, std::shared_ptr<arrow::Table>> named_tables_;
   const std::shared_ptr<arrow::acero::NullSinkNodeConsumer> null_consumer_ =
@@ -109,6 +134,7 @@ arrow::Status StartServer() {
 }
 
 int main(int argc, char** argv) {
+  absl::ParseCommandLine(argc, argv);
   auto status = StartServer();
   if (!status.ok()) {
     std::cerr << "Failed with status: " << status << std::endl;
