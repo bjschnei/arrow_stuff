@@ -32,11 +32,15 @@ class ShardedNamedTableProvider {
     const arrow::flight::Ticket ticket{std::move(named_table_substrait)};
     for (const auto& client : clients_) {
       ARROW_ASSIGN_OR_RAISE(auto flight_stream_reader, client->DoGet(ticket));
-      // TODO: Should actually use RecordBatchReader instead of
-      // Reading in the entire result into memory right here.
-      ARROW_ASSIGN_OR_RAISE(auto table, flight_stream_reader->ToTable());
-      arrow::acero::Declaration table_source(
-          "table_source", arrow::acero::TableSourceNodeOptions(table));
+      std::shared_ptr<arrow::flight::FlightStreamReader> shared_reader =
+          std::move(flight_stream_reader);
+      ARROW_ASSIGN_OR_RAISE(
+          auto record_batch_reader,
+          arrow::flight::MakeRecordBatchReader(shared_reader));
+      arrow::acero::Declaration table_source{
+          "record_batch_reader_source",
+          arrow::acero::RecordBatchReaderSourceNodeOptions{
+              record_batch_reader}};
       union_decl.inputs.push_back(std::move(table_source));
     }
     return union_decl;
