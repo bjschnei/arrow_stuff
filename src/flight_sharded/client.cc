@@ -26,7 +26,7 @@ class ShardedFlightRecordBatchReader : public arrow::RecordBatchReader {
         schema_(std::move(schema)),
         ticket_(std::move(ticket)) {}
 
-  virtual arrow::Status ReadNext(
+  arrow::Status ReadNext(
       std::shared_ptr<arrow::RecordBatch>* batch) override {
     if (!reader_) {
       RETURN_NOT_OK(InitReader());
@@ -34,7 +34,7 @@ class ShardedFlightRecordBatchReader : public arrow::RecordBatchReader {
     return reader_->ReadNext(batch);
   }
 
-  virtual std::shared_ptr<arrow::Schema> schema() const override {
+  std::shared_ptr<arrow::Schema> schema() const override {
     return schema_;
   }
 
