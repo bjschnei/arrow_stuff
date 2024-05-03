@@ -15,6 +15,44 @@ ABSL_FLAG(std::vector<std::string>, shard_locations,
           std::vector<std::string>({"grpc://localhost:12345"}),
           "comma-separated list of shard locations");
 
+// Lazy convert ticket to a RecordBatchReader on first iteration
+class ShardedFlightRecordBatchReader : public arrow::RecordBatchReader {
+ public:
+  ShardedFlightRecordBatchReader(arrow::flight::FlightClient& client,
+                                 std::shared_ptr<arrow::Schema> schema,
+                                 arrow::flight::Ticket ticket)
+      : RecordBatchReader(),
+        client_(client),
+        schema_(std::move(schema)),
+        ticket_(std::move(ticket)) {}
+
+  virtual arrow::Status ReadNext(
+      std::shared_ptr<arrow::RecordBatch>* batch) override {
+    if (!reader_) {
+      RETURN_NOT_OK(InitReader());
+    }
+    return reader_->ReadNext(batch);
+  }
+
+  virtual std::shared_ptr<arrow::Schema> schema() const override {
+    return schema_;
+  }
+
+ private:
+  arrow::Status InitReader() {
+    ARROW_ASSIGN_OR_RAISE(auto flight_stream_reader, client_.DoGet(ticket_));
+    std::shared_ptr<arrow::flight::FlightStreamReader> shared_reader =
+        std::move(flight_stream_reader);
+    ARROW_ASSIGN_OR_RAISE(reader_,
+                          arrow::flight::MakeRecordBatchReader(shared_reader));
+    return arrow::Status::OK();
+  }
+  arrow::flight::FlightClient& client_;
+  arrow::flight::Ticket ticket_;
+  std::shared_ptr<arrow::RecordBatchReader> reader_;
+  std::shared_ptr<arrow::Schema> schema_;
+};
+
 class ShardedNamedTableProvider {
  public:
   explicit ShardedNamedTableProvider(
@@ -30,17 +68,12 @@ class ShardedNamedTableProvider {
     arrow::acero::Declaration union_decl{"union",
                                          arrow::acero::ExecNodeOptions{}};
     const arrow::flight::Ticket ticket{std::move(named_table_substrait)};
-    for (const auto& client : clients_) {
-      ARROW_ASSIGN_OR_RAISE(auto flight_stream_reader, client->DoGet(ticket));
-      std::shared_ptr<arrow::flight::FlightStreamReader> shared_reader =
-          std::move(flight_stream_reader);
-      ARROW_ASSIGN_OR_RAISE(
-          auto record_batch_reader,
-          arrow::flight::MakeRecordBatchReader(shared_reader));
+    for (auto& client : clients_) {
+      auto reader = std::make_shared<ShardedFlightRecordBatchReader>(
+          *client, std::make_shared<arrow::Schema>(schema), ticket);
       arrow::acero::Declaration table_source{
           "record_batch_reader_source",
-          arrow::acero::RecordBatchReaderSourceNodeOptions{
-              record_batch_reader}};
+          arrow::acero::RecordBatchReaderSourceNodeOptions{reader}};
       union_decl.inputs.push_back(std::move(table_source));
     }
     return union_decl;
