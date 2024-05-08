@@ -7,6 +7,17 @@ project(
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Include FetchContent module
+include(FetchContent)
+
+# duckdb
+FetchContent_Declare(
+  duckdb 
+  GIT_REPOSITORY "https://github.com/duckdb/duckdb.git"
+  GIT_TAG 4a89d97db8a5a23a15f3025c8d2d2885337c2637 
+)
+FetchContent_MakeAvailable(duckdb)
+
 find_package(Arrow REQUIRED)
 find_package(ArrowDataset REQUIRED)
 find_package(ArrowFlight REQUIRED)
@@ -36,3 +47,8 @@ target_link_libraries(flight_client_basics PRIVATE Arrow::arrow_static
                                                    ArrowDataset::arrow_dataset_static
                                                    ArrowFlight::arrow_flight_static
                                                    ArrowSubstrait::arrow_substrait_static)
+add_executable(sql_basics sql_basics.cc)
+target_link_libraries(sql_basics PRIVATE 
+                                         absl::strings
+                                         Arrow::arrow_static
+                                         duckdb)
