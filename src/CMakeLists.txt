@@ -51,4 +51,4 @@ add_executable(sql_basics sql_basics.cc)
 target_link_libraries(sql_basics PRIVATE 
                                          absl::strings
                                          Arrow::arrow_static
-                                         duckdb)
+                                         duckdb_static)

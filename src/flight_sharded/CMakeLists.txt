@@ -36,4 +36,6 @@ target_link_libraries(client PRIVATE absl::flat_hash_map
                                      Arrow::arrow_static 
                                      ArrowDataset::arrow_dataset_static
                                      ArrowFlight::arrow_flight_static
-                                     ArrowSubstrait::arrow_substrait_static)
+                                     ArrowSubstrait::arrow_substrait_static
+                                     duckdb_static
+                                     )

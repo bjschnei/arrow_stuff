@@ -10,10 +10,19 @@
 #include "arrow/acero/util.h"
 #include "arrow/api.h"
 #include "arrow/engine/api.h"
+#include "duckdb.hpp"
 
 ABSL_FLAG(std::vector<std::string>, shard_locations,
           std::vector<std::string>({"grpc://localhost:12345"}),
           "comma-separated list of shard locations");
+ABSL_FLAG(std::string, sql, "select sku, price, category from products",
+          "query to run");
+/*
+  DuckDB substrait use readrel projections, and arrow engine doesn't support it.
+  NotImplemented: substrait::ReadRel::projection
+*/
+ABSL_FLAG(bool, use_sql, false,
+          "run the sql query - broken due to incompatible substrait");
 
 // Lazy convert ticket to a RecordBatchReader on first iteration
 class ShardedFlightRecordBatchReader : public arrow::RecordBatchReader {
@@ -26,17 +35,14 @@ class ShardedFlightRecordBatchReader : public arrow::RecordBatchReader {
         schema_(std::move(schema)),
         ticket_(std::move(ticket)) {}
 
-  arrow::Status ReadNext(
-      std::shared_ptr<arrow::RecordBatch>* batch) override {
+  arrow::Status ReadNext(std::shared_ptr<arrow::RecordBatch>* batch) override {
     if (!reader_) {
       RETURN_NOT_OK(InitReader());
     }
     return reader_->ReadNext(batch);
   }
 
-  std::shared_ptr<arrow::Schema> schema() const override {
-    return schema_;
-  }
+  std::shared_ptr<arrow::Schema> schema() const override { return schema_; }
 
  private:
   arrow::Status InitReader() {
@@ -99,6 +105,90 @@ class ShardedNamedTableProvider {
   }
 
   std::vector<std::unique_ptr<arrow::flight::FlightClient>> clients_;
+};
+
+class SubstraitProvider {
+ public:
+  SubstraitProvider() : db_(nullptr), con_(db_) {}
+  arrow::Status Init() {
+    try {
+      con_.Query("INSTALL substrait");
+      con_.Query("LOAD substrait");
+    } catch (duckdb::Exception e) {
+      return arrow::Status::Invalid(e.what());
+    }
+    return arrow::Status::OK();
+  }
+
+  arrow::Status Register(std::string_view table_name,
+                         const arrow::Schema& schema) {
+    ARROW_ASSIGN_OR_RAISE(auto sql, ToSql(table_name, schema));
+    try {
+      con_.Query(sql);
+    } catch (duckdb::Exception e) {
+      return arrow::Status::Invalid(e.what());
+    }
+    return arrow::Status::OK();
+  }
+
+  arrow::Result<std::string> GenerateSubstrait(const std::string& sql) {
+    try {
+      return con_.GetSubstrait(sql);
+    } catch (duckdb::Exception e) {
+      return arrow::Status::Invalid(e.what());
+    }
+  }
+
+ private:
+  // Do some of the basics
+  arrow::Result<std::string> ToSql(const arrow::DataType& type) {
+    switch (type.id()) {
+      case arrow::Type::BOOL:
+        return "BOOL";
+      case arrow::Type::INT8:
+        return "TINYINT";
+      case arrow::Type::INT16:
+        return "SMALLINT";
+      case arrow::Type::INT32:
+        return "INTEGER";
+      case arrow::Type::INT64:
+        return "BIGINT";
+      case arrow::Type::UINT8:
+        return "UTINYINT";
+      case arrow::Type::UINT16:
+        return "USMALLINT";
+      case arrow::Type::UINT32:
+        return "UINTEGER";
+      case arrow::Type::UINT64:
+        return "UBIGINT";
+      case arrow::Type::FLOAT:
+        return "FLOAT";
+      case arrow::Type::DOUBLE:
+        return "DOUBLE";
+      case arrow::Type::STRING:
+        return "VARCHAR(255)";
+    }
+    return arrow::Status::Invalid(absl::StrCat("Unknown type ", type.id()));
+  }
+
+  arrow::Result<std::string> ToSql(std::string_view name,
+                                   const arrow::Schema& schema) {
+    std::string head_statement = absl::StrCat("CREATE TABLE ", name, "(");
+    std::string body_statement;
+    for (const auto& field : schema.fields()) {
+      auto field_name = field->name();
+      auto field_type = field->type();
+      if (!body_statement.empty()) {
+        body_statement += ", ";
+      }
+      ARROW_ASSIGN_OR_RAISE(auto type_str, ToSql(*field_type));
+      absl::StrAppend(&body_statement, field_name, " ", type_str);
+    }
+    return absl::StrCat(head_statement, body_statement, ")");
+  }
+
+  duckdb::DuckDB db_;
+  duckdb::Connection con_;
 };
 
 arrow::Result<std::shared_ptr<arrow::Table>> RunSubstraitQuery(
@@ -200,8 +290,23 @@ int main(int argc, char** argv) {
     std::cerr << "Failed to get schemas: " << schemas.status() << std::endl;
     return 1;
   }
+  SubstraitProvider substrait_provider;
+  if (auto status = substrait_provider.Init(); !status.ok()) {
+    std::cerr << "Failed to init substrait provider: " << status << std::endl;
+    return 1;
+  }
+  for (const auto& [name, schema] : *schemas) {
+    if (auto status = substrait_provider.Register(name, *schema);
+        !status.ok()) {
+      std::cerr << "Failed to init substrait provider: " << status << std::endl;
+      return 1;
+    }
+  }
 
-  auto substrait = GetSelectAllProductsSubstrait((*schemas)["products"]);
+  auto substrait =
+      absl::GetFlag(FLAGS_use_sql)
+          ? substrait_provider.GenerateSubstrait(absl::GetFlag(FLAGS_sql))
+          : GetSelectAllProductsSubstrait((*schemas)["products"]);
   if (!substrait.ok()) {
     std::cerr << "Failed to get substrait: " << substrait.status() << std::endl;
     return 1;
