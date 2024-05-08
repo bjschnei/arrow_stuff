@@ -4,18 +4,6 @@
 #include "arrow/api.h"
 #include "duckdb.hpp"
 
-/**
- * Demonstrate executing a sql query an arrow table.
-*/
-constexpr std::string_view kCsvTable = R"csv(
-description,priority,price
-"obj1",1,10
-"obj2",1,15
-"obj3",3,20
-"obj4",3,25
-"obj5",7,30
-)csv";
-
 // Do some of the basics
 arrow::Result<std::string> ToSql(const arrow::DataType& type) {
   switch (type.id()) {
