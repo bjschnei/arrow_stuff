@@ -18,8 +18,8 @@ ABSL_FLAG(std::vector<std::string>, shard_locations,
 ABSL_FLAG(std::string, sql, "select sku, price, category from products",
           "query to run");
 /*
-  DuckDB substrait use readrel projections, and arrow engine doesn't support it.
-  NotImplemented: substrait::ReadRel::projection
+  DuckDB substrait doesn't seem to be well supported
+  Deserialization seems to consistently fail for one reason or another.
 */
 ABSL_FLAG(bool, use_sql, false,
           "run the sql query - broken due to incompatible substrait");
@@ -114,6 +114,9 @@ class SubstraitProvider {
     try {
       con_.Query("INSTALL substrait");
       con_.Query("LOAD substrait");
+      // TODO: Limit to projection pushdown
+      // which results in substrait not supported by arrow deserialization.
+      con_.Query("PRAGMA disable_optimizer;");
     } catch (duckdb::Exception e) {
       return arrow::Status::Invalid(e.what());
     }
@@ -272,7 +275,6 @@ arrow::Result<std::string> GetSelectAllProductsSubstrait(
   ARROW_ASSIGN_OR_RAISE(
       std::shared_ptr<arrow::Buffer> plan_substrait,
       arrow::engine::SerializePlan(source, &empty_extension_set));
-  arrow::flight::FlightEndpoint endpoint;
   return plan_substrait->ToString();
 }
 
