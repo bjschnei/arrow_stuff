@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.22)
 project(
   QueryArrow
   DESCRIPTION "Play around with querying apache arrow"
-  LANGUAGES CXX)
+  LANGUAGES CXX C)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -18,12 +18,24 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(duckdb)
 
+set(ABSL_PROPAGATE_CXX_STD ON)
+set(BUILD_TESTING OFF) # don't test absl
+# Absl
+# Must match the version used by the statically linked arrow
+# in order to avoid duplicate definition linker errors.
+FetchContent_Declare(
+  absl
+  GIT_REPOSITORY "https://github.com/abseil/abseil-cpp.git"
+  GIT_TAG 20211102.0)  
+FetchContent_MakeAvailable(absl)
+
 find_package(Arrow REQUIRED)
 find_package(ArrowDataset REQUIRED)
 find_package(ArrowFlight REQUIRED)
 find_package(ArrowSubstrait REQUIRED)
 
 add_subdirectory(flight_sharded)
+add_subdirectory(sqlite)
 
 add_executable(table_basics table_basics.cc)
 target_link_libraries(table_basics PRIVATE Arrow::arrow_static)
