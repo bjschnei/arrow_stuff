@@ -5,10 +5,64 @@
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "arrow/api.h"
+#include "arrow/builder.h"
 #include "arrow/type_fwd.h"
 #include "sqlite3.h"
 
-absl::flat_hash_map<uint8_t, arrow::Type::type> kSqliteToArrowTypes{};
+/**
+ * Simplified version of what arrow/flight/sql/examples sqlite_statement and
+ * sqlite_statement_batch_reader does.  Just loads results into a single
+ * in-memory table. For a stream of record batches, use the
+ * sqlite_statement_batch_reader.
+ */
+
+// Copied from sqlite_statement_batch_reader
+
+#define STRING_BUILDER_CASE(TYPE_CLASS, STMT, COLUMN)                        \
+  case TYPE_CLASS##Type::type_id: {                                          \
+    auto builder = reinterpret_cast<TYPE_CLASS##Builder*>(array_builder);    \
+    const int bytes = sqlite3_column_bytes(STMT, COLUMN);                    \
+    const uint8_t* string =                                                  \
+        reinterpret_cast<const uint8_t*>(sqlite3_column_text(STMT, COLUMN)); \
+    if (string == nullptr) {                                                 \
+      ARROW_RETURN_NOT_OK(builder->AppendNull());                            \
+      break;                                                                 \
+    }                                                                        \
+    ARROW_RETURN_NOT_OK(builder->Append(string, bytes));                     \
+    break;                                                                   \
+  }
+
+#define BINARY_BUILDER_CASE(TYPE_CLASS, STMT, COLUMN)                        \
+  case TYPE_CLASS##Type::type_id: {                                          \
+    auto builder = reinterpret_cast<TYPE_CLASS##Builder*>(array_builder);    \
+    const int bytes = sqlite3_column_bytes(STMT, COLUMN);                    \
+    const uint8_t* blob =                                                    \
+        reinterpret_cast<const uint8_t*>(sqlite3_column_blob(STMT, COLUMN)); \
+    if (blob == nullptr) {                                                   \
+      ARROW_RETURN_NOT_OK(builder->AppendNull());                            \
+      break;                                                                 \
+    }                                                                        \
+    ARROW_RETURN_NOT_OK(builder->Append(blob, bytes));                       \
+    break;                                                                   \
+  }
+
+#define INT_BUILDER_CASE(TYPE_CLASS, STMT, COLUMN)                        \
+  case TYPE_CLASS##Type::type_id: {                                       \
+    using c_type = typename TYPE_CLASS##Type::c_type;                     \
+    auto builder = reinterpret_cast<TYPE_CLASS##Builder*>(array_builder); \
+    const sqlite3_int64 value = sqlite3_column_int64(STMT, COLUMN);       \
+    ARROW_RETURN_NOT_OK(builder->Append(static_cast<c_type>(value)));     \
+    break;                                                                \
+  }
+
+#define FLOAT_BUILDER_CASE(TYPE_CLASS, STMT, COLUMN)                          \
+  case TYPE_CLASS##Type::type_id: {                                           \
+    auto builder = reinterpret_cast<TYPE_CLASS##Builder*>(array_builder);     \
+    const double value = sqlite3_column_double(STMT, COLUMN);                 \
+    ARROW_RETURN_NOT_OK(                                                      \
+        builder->Append(static_cast<const TYPE_CLASS##Type::c_type>(value))); \
+    break;                                                                    \
+  }
 
 int InsertRowToTable(sqlite3* db, std::string_view sku, int price,
                      std::string_view category) {
@@ -100,7 +154,7 @@ std::shared_ptr<arrow::DataType> GetUnknownColumnDataType() {
   });
 }
 
-arrow::Result<arrow::Schema> GetSchema(sqlite3_stmt* stmt) {
+arrow::Result<std::shared_ptr<arrow::Schema>> GetSchema(sqlite3_stmt* stmt) {
   const int num_columns = sqlite3_column_count(stmt);
   if (num_columns == 0) {
     return arrow::Status::Invalid("No table returned");
@@ -126,18 +180,53 @@ arrow::Result<arrow::Schema> GetSchema(sqlite3_stmt* stmt) {
     }
     schema_vector.push_back(arrow::field(name, *arrow_type));
   }
-  return arrow::Schema(schema_vector);
+  return std::make_shared<arrow::Schema>(schema_vector);
 }
 
-arrow::Status ReadData(sqlite3_stmt* stmt, const arrow::Schema& schema) {
-  const int num_fields = schema.num_fields();
+// Simplified from sqlite_statement_batch_reader
+// get all the columns in a single batch.
+arrow::Result<std::shared_ptr<arrow::Table>> ReadData(
+    sqlite3_stmt* stmt, std::shared_ptr<arrow::Schema> schema) {
+  const int num_fields = schema->num_fields();
   std::vector<std::unique_ptr<arrow::ArrayBuilder>> builders(num_fields);
   for (int i = 0; i < num_fields; i++) {
-    const std::shared_ptr<arrow::Field>& field = schema.field(i);
+    const std::shared_ptr<arrow::Field>& field = schema->field(i);
     const std::shared_ptr<arrow::DataType>& field_type = field->type();
-    ARROW_RETURN_NOT_OK(arrow::MakeBuilder(arrow::default_memory_pool(), field_type, &builders[i]));
+    ARROW_RETURN_NOT_OK(arrow::MakeBuilder(arrow::default_memory_pool(),
+                                           field_type, &builders[i]));
   }
-  return arrow::Status::Invalid("unimplemented");
+  int rc = SQLITE_ROW;
+  while (rc == SQLITE_ROW) {
+    for (int i = 0; i < num_fields; i++) {
+      const std::shared_ptr<arrow::Field>& field = schema->field(i);
+      const std::shared_ptr<arrow::DataType>& field_type = field->type();
+      arrow::ArrayBuilder* array_builder = builders[i].get();
+
+      if (sqlite3_column_type(stmt, i) == SQLITE_NULL) {
+        ARROW_RETURN_NOT_OK(array_builder->AppendNull());
+        continue;
+      }
+
+      switch (field_type->id()) {
+        INT_BUILDER_CASE(arrow::Int64, stmt, i)
+        FLOAT_BUILDER_CASE(arrow::Float, stmt, i)
+        BINARY_BUILDER_CASE(arrow::Binary, stmt, i)
+        STRING_BUILDER_CASE(arrow::String, stmt, i)
+        default:
+          return arrow::Status::NotImplemented(
+              "Not implemented SQLite data conversion to ", field_type->name());
+      }
+    }
+    rc = sqlite3_step(stmt);
+  }
+  if (rc != SQLITE_DONE) {
+    return arrow::Status::Invalid("Reading result failed");
+  }
+  std::vector<std::shared_ptr<arrow::Array>> arrays(builders.size());
+  for (int i = 0; i < num_fields; i++) {
+    ARROW_RETURN_NOT_OK(builders[i]->Finish(&arrays[i]));
+  }
+  return arrow::Table::Make(schema, arrays);
 }
 
 arrow::Result<std::shared_ptr<arrow::Table>> RunQuery(sqlite3* db,
@@ -153,8 +242,8 @@ arrow::Result<std::shared_ptr<arrow::Table>> RunQuery(sqlite3* db,
   }
 
   ARROW_ASSIGN_OR_RAISE(auto schema, GetSchema(stmt));
-  std::cout << schema.ToString() << std::endl;
-  return arrow::Status::Invalid("unimplemented");
+  std::cout << schema->ToString() << std::endl;
+  return ReadData(stmt, schema);
 }
 
 int main(int argc, char** argv) {
@@ -167,5 +256,6 @@ int main(int argc, char** argv) {
     std::cout << "Got error " << rv.status() << std::endl;
     return 1;
   }
+  std::cout << (*rv)->ToString() << std::endl;
   return 0;
 }
