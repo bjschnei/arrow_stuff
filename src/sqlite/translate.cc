@@ -21,53 +21,39 @@ ABSL_FLAG(std::string, sql, "select sku, price, category from Products",
  * sqlite_statement_batch_reader.
  */
 
-// Copied from sqlite_statement_batch_reader
-
-#define STRING_BUILDER_CASE(TYPE_CLASS, STMT, COLUMN)                        \
-  case TYPE_CLASS##Type::type_id: {                                          \
-    auto builder = reinterpret_cast<TYPE_CLASS##Builder*>(array_builder);    \
-    const int bytes = sqlite3_column_bytes(STMT, COLUMN);                    \
-    const uint8_t* string =                                                  \
-        reinterpret_cast<const uint8_t*>(sqlite3_column_text(STMT, COLUMN)); \
-    if (string == nullptr) {                                                 \
-      ARROW_RETURN_NOT_OK(builder->AppendNull());                            \
-      break;                                                                 \
-    }                                                                        \
-    ARROW_RETURN_NOT_OK(builder->Append(string, bytes));                     \
-    break;                                                                   \
+arrow::Status BuildString(arrow::StringBuilder* builder, sqlite3_stmt* stmt,
+                          int column) {
+  const int bytes = sqlite3_column_bytes(stmt, column);
+  const uint8_t* string =
+      reinterpret_cast<const uint8_t*>(sqlite3_column_text(stmt, column));
+  if (string == nullptr) {
+    return builder->AppendNull();
   }
+  return builder->Append(string, bytes);
+}
 
-#define BINARY_BUILDER_CASE(TYPE_CLASS, STMT, COLUMN)                        \
-  case TYPE_CLASS##Type::type_id: {                                          \
-    auto builder = reinterpret_cast<TYPE_CLASS##Builder*>(array_builder);    \
-    const int bytes = sqlite3_column_bytes(STMT, COLUMN);                    \
-    const uint8_t* blob =                                                    \
-        reinterpret_cast<const uint8_t*>(sqlite3_column_blob(STMT, COLUMN)); \
-    if (blob == nullptr) {                                                   \
-      ARROW_RETURN_NOT_OK(builder->AppendNull());                            \
-      break;                                                                 \
-    }                                                                        \
-    ARROW_RETURN_NOT_OK(builder->Append(blob, bytes));                       \
-    break;                                                                   \
+arrow::Status BuildBinary(arrow::BinaryBuilder* builder, sqlite3_stmt* stmt,
+                          int column) {
+  const int bytes = sqlite3_column_bytes(stmt, column);
+  const uint8_t* blob =
+      reinterpret_cast<const uint8_t*>(sqlite3_column_blob(stmt, column));
+  if (blob == nullptr) {
+    return builder->AppendNull();
   }
+  return builder->Append(blob, bytes);
+}
 
-#define INT_BUILDER_CASE(TYPE_CLASS, STMT, COLUMN)                        \
-  case TYPE_CLASS##Type::type_id: {                                       \
-    using c_type = typename TYPE_CLASS##Type::c_type;                     \
-    auto builder = reinterpret_cast<TYPE_CLASS##Builder*>(array_builder); \
-    const sqlite3_int64 value = sqlite3_column_int64(STMT, COLUMN);       \
-    ARROW_RETURN_NOT_OK(builder->Append(static_cast<c_type>(value)));     \
-    break;                                                                \
-  }
+arrow::Status BuildInt64(arrow::Int64Builder* builder, sqlite3_stmt* stmt,
+                         int column) {
+  const sqlite3_int64 value = sqlite3_column_int64(stmt, column);
+  return builder->Append(static_cast<int64_t>(value));
+}
 
-#define FLOAT_BUILDER_CASE(TYPE_CLASS, STMT, COLUMN)                          \
-  case TYPE_CLASS##Type::type_id: {                                           \
-    auto builder = reinterpret_cast<TYPE_CLASS##Builder*>(array_builder);     \
-    const double value = sqlite3_column_double(STMT, COLUMN);                 \
-    ARROW_RETURN_NOT_OK(                                                      \
-        builder->Append(static_cast<const TYPE_CLASS##Type::c_type>(value))); \
-    break;                                                                    \
-  }
+arrow::Status BuildFloat(arrow::FloatBuilder* builder, sqlite3_stmt* stmt,
+                         int column) {
+  const double value = sqlite3_column_double(stmt, column);
+  return builder->Append(static_cast<float>(value));
+}
 
 int InsertRowToTable(sqlite3* db, std::string_view sku, int price,
                      std::string_view category) {
@@ -213,10 +199,22 @@ arrow::Result<std::shared_ptr<arrow::Table>> ReadData(
       }
 
       switch (field_type->id()) {
-        INT_BUILDER_CASE(arrow::Int64, stmt, i)
-        FLOAT_BUILDER_CASE(arrow::Float, stmt, i)
-        BINARY_BUILDER_CASE(arrow::Binary, stmt, i)
-        STRING_BUILDER_CASE(arrow::String, stmt, i)
+        case arrow::Int64Type::type_id:
+          ARROW_RETURN_NOT_OK(BuildInt64(
+              reinterpret_cast<arrow::Int64Builder*>(array_builder), stmt, i));
+          break;
+        case arrow::FloatType::type_id:
+          ARROW_RETURN_NOT_OK(BuildFloat(
+              reinterpret_cast<arrow::FloatBuilder*>(array_builder), stmt, i));
+          break;
+        case arrow::BinaryType::type_id:
+          ARROW_RETURN_NOT_OK(BuildBinary(
+              reinterpret_cast<arrow::BinaryBuilder*>(array_builder), stmt, i));
+          break;
+        case arrow::StringType::type_id:
+          ARROW_RETURN_NOT_OK(BuildString(
+              reinterpret_cast<arrow::StringBuilder*>(array_builder), stmt, i));
+          break;
         default:
           return arrow::Status::NotImplemented(
               "Not implemented SQLite data conversion to ", field_type->name());
