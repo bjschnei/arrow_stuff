@@ -1,6 +1,8 @@
 #include <iostream>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/flags/flag.h"
+#include "absl/flags/parse.h"
 #include "absl/strings/ascii.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
@@ -8,6 +10,9 @@
 #include "arrow/builder.h"
 #include "arrow/type_fwd.h"
 #include "sqlite3.h"
+
+ABSL_FLAG(std::string, sql, "select sku, price, category from Products",
+          "query to run");
 
 /**
  * Simplified version of what arrow/flight/sql/examples sqlite_statement and
@@ -247,11 +252,12 @@ arrow::Result<std::shared_ptr<arrow::Table>> RunQuery(sqlite3* db,
 }
 
 int main(int argc, char** argv) {
+  absl::ParseCommandLine(argc, argv);
   sqlite3* db = CreateDbAndTable();
   if (!db) {
     return 1;
   }
-  auto rv = RunQuery(db, "select * from Products;");
+  auto rv = RunQuery(db, absl::GetFlag(FLAGS_sql));
   if (!rv.ok()) {
     std::cout << "Got error " << rv.status() << std::endl;
     return 1;

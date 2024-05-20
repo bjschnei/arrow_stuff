@@ -15,6 +15,8 @@ target_include_directories(translate
     $<BUILD_INTERFACE:${sqlite3_SOURCE_DIR}>)
 
 target_link_libraries(translate PRIVATE 
+                                     absl::flags
+                                     absl::flags_parse
                                      absl::strings
                                      Arrow::arrow_static 
                                      )
